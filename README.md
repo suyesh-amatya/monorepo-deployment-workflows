@@ -1,6 +1,6 @@
 # monorepoworkflows
 
-- Triggers the workflow on push or pull request events but only for the "main" branch. Additionally ignore if only `README.md`
+- Triggers the workflow on push or pull request events but only for the `main` branch. Additionally ignore if only `README.md`
 file changes.
 - Gets all the files changed/modified in a pull request or push's commits.
 - Filters our the projects in `.deployignore` and the projects where only `README.md` files are modififed.
