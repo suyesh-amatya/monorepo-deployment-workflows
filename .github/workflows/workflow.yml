@@ -1,0 +1,103 @@
+# This is a basic workflow to help you get started with Actions
+
+name: Monorepo Workflows
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch. Additionally ignore if only README.md
+  # file changes.
+  push:
+    branches: [ "main" ]
+    paths-ignore:
+      - '**/README.md'
+  pull_request:
+    branches: [ "main" ]
+    paths-ignore:
+      - '**/README.md'
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "deploy"
+  deploy:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      # Get all the files changed/modified in a pull request or push's commits.
+      - name: Get Modified Files
+        uses: jitterbit/get-changed-files@v1
+        id: get_modified_files
+        with:
+          format: space-delimited
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Filter our the projects in .deployignore and the projects where only README.md files are modififed.
+      - name: Filter out .deployignore projects
+        id: filter_readme_deployignore_projects
+        run: |
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "All:"
+          echo "${{ steps.get_modified_files.outputs.all }}"
+          modified_files="${{ steps.get_modified_files.outputs.all }}"
+          stringarray=($modified_files)
+          ignore_file=".deployignore"
+          
+          # Ignore projects with only README.md files modififed
+          projects=()
+          for file in "${stringarray[@]}"; do
+            if [[ ! "$file" =~ README.md$ ]]; then
+              project=$(dirname "$file")
+              projects+=("$project")
+            fi
+          done
+          
+          # Get top-level project directories
+          top_level_project_dir=()
+          for project in "${projects[@]}"; do
+            echo "Project without README.md: $project"
+            top_dirs=$(echo "$project" | awk -F'/' '{print $1}')
+            echo "TOP Dirs: $top_dirs"
+            top_level_project_dir+=("$top_dirs")
+          done
+          
+          # Filter out the projects in the .deployignore file
+          filtered_projects=$(comm -23 <(printf '%s\n' "${top_level_project_dir[@]}" | sort) <(sort "$ignore_file"))
+          echo $filtered_projects
+          echo "filtered_projects<<$EOF" >> $GITHUB_OUTPUT
+          echo "$filtered_projects" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+
+      # Python Set Up
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.x
+
+      # Calculate the topological order for the modified projects and print out on the GitHub Actions UI
+      # The script calculate_topological_order.py takes project dependencies DAG and the filtered projects as inputs
+      # and prints the topological order which is a subset of the original topological order from the raw DAG file.
+      - name: Calculate topological order
+        id: calculate_topological_order
+        run: |
+          dependencies_file="dependencies.txt"
+          filtered_projects="${{ steps.filter_readme_deployignore_projects.outputs.filtered_projects }}"
+          
+          echo "Filtered:$filtered_projects"
+          filtered_projects_single_line=$(echo \"$filtered_projects\" | tr '\n' ' ')
+          echo "Filtered Single Line:$filtered_projects_single_line"
+          topo_output=$(python calculate_topological_order.py dependencies.txt "${{ steps.filter_readme_deployignore_projects.outputs.filtered_projects }}")
+          
+          echo "-----Print Toplogical Order : ------
+          $topo_output"
+          
+          
